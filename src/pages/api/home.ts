@@ -1,4 +1,3 @@
-// src/pages/api/home.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 
 type Market = {
@@ -8,13 +7,11 @@ type Market = {
   price_change_percentage_24h?: number;
 };
 
-type Success = {
-  greedFear: number;
-  topGainers: Market[];
-  topLosers: Market[];
-};
-
+type Success = { greedFear: number; topGainers: Market[]; topLosers: Market[] };
 type Failure = { error: string };
+
+const FNG_DEFAULT = "https://api.alternative.me/fng/?limit=1";
+const COINGECKO_BASE_DEFAULT = "https://api.coingecko.com/api/v3";
 
 export default async function handler(
   req: NextApiRequest,
@@ -26,67 +23,71 @@ export default async function handler(
       return;
     }
 
-    // --- Fear & Greed Index ---
-    const fngRes = await fetch(process.env.FNG_API as string);
-    const fngRaw: unknown = await fngRes.json();
+    const FNG_API = process.env.FNG_API || FNG_DEFAULT;
+    const CG_BASE = process.env.COINGECKO_BASE || COINGECKO_BASE_DEFAULT;
 
-    let idx = 50;
-    if (
-      fngRaw &&
-      typeof fngRaw === "object" &&
-      "data" in fngRaw &&
-      Array.isArray((fngRaw as { data?: unknown[] }).data)
-    ) {
-      const val = (fngRaw as { data: Array<{ value?: unknown }> }).data[0]?.value;
-      const n = Number(val);
-      if (!Number.isNaN(n)) idx = n;
+    // --- Fear & Greed (tolerate failure) ---
+    let greedFear = 50;
+    try {
+      const fngRes = await fetch(FNG_API, { cache: "no-store" });
+      const fngRaw: unknown = await fngRes.json();
+      if (
+        fngRaw &&
+        typeof fngRaw === "object" &&
+        "data" in fngRaw &&
+        Array.isArray((fngRaw as { data?: unknown[] }).data)
+      ) {
+        const v = (fngRaw as { data: Array<{ value?: unknown }> }).data[0]?.value;
+        const n = Number(v);
+        if (!Number.isNaN(n)) greedFear = n;
+      }
+    } catch {
+      // keep default 50
     }
 
-    // --- Markets (CoinGecko) ---
-    const url = `${process.env.COINGECKO_BASE}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&price_change_percentage=24h`;
-    const mktsRes = await fetch(url);
-    const mktsRaw: unknown = await mktsRes.json();
+    // --- Markets (tolerate failure) ---
+    let markets: Market[] = [];
+    try {
+      const url = `${CG_BASE}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&sparkline=false&price_change_percentage=24h`;
+      const mktsRes = await fetch(url, {
+        cache: "no-store",
+        headers: { "User-Agent": "ai-trader/1.0" }, // helps some APIs
+      });
+      const mktsRaw: unknown = await mktsRes.json();
 
-    let mkts: Market[] = [];
-    if (Array.isArray(mktsRaw)) {
-      mkts = mktsRaw
-        .map((item: unknown): Market | null => {
-          if (!item || typeof item !== "object") return null;
-
-          const id = (item as Record<string, unknown>).id;
-          const symbol = (item as Record<string, unknown>).symbol;
-          const name = (item as Record<string, unknown>).name;
-          const p24 = (item as Record<string, unknown>).price_change_percentage_24h;
-
-          const safeId = typeof id === "string" ? id : "";
-          const safeSymbol = typeof symbol === "string" ? symbol : "";
-          const safeName = typeof name === "string" ? name : "";
-          const safeP24 = typeof p24 === "number" ? p24 : undefined;
-
-          if (!safeId || !safeSymbol || !safeName) return null;
-
-          return {
-            id: safeId,
-            symbol: safeSymbol,
-            name: safeName,
-            price_change_percentage_24h: safeP24,
-          };
-        })
-        .filter((x): x is Market => x !== null);
+      if (Array.isArray(mktsRaw)) {
+        markets = mktsRaw
+          .map((item: unknown): Market | null => {
+            if (!item || typeof item !== "object") return null;
+            const obj = item as Record<string, unknown>;
+            const id = typeof obj.id === "string" ? obj.id : "";
+            const symbol = typeof obj.symbol === "string" ? obj.symbol : "";
+            const name = typeof obj.name === "string" ? obj.name : "";
+            const p24 =
+              typeof obj.price_change_percentage_24h === "number"
+                ? obj.price_change_percentage_24h
+                : undefined;
+            if (!id || !symbol || !name) return null;
+            return { id, symbol, name, price_change_percentage_24h: p24 };
+          })
+          .filter((x): x is Market => x !== null);
+      }
+    } catch {
+      // leave markets as []
     }
 
-    // Sort by 24h percentage change (desc), then slice for top gainers/losers
-    mkts.sort(
+    // sort + slice (works even if [])
+    markets.sort(
       (a, b) =>
         (b.price_change_percentage_24h ?? 0) -
         (a.price_change_percentage_24h ?? 0)
     );
+    const topGainers = markets.slice(0, 20);
+    const topLosers = markets.slice(-20).reverse();
 
-    const topGainers = mkts.slice(0, 20);
-    const topLosers = mkts.slice(-20).reverse();
-
-    res.status(200).json({ greedFear: idx, topGainers, topLosers });
+    res.status(200).json({ greedFear, topGainers, topLosers });
   } catch (e) {
-    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    // final safety net: return empty payload instead of 500
+    res.status(200).json({ greedFear: 50, topGainers: [], topLosers: [] });
   }
 }

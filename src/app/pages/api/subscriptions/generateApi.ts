@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import crypto from "crypto";
 // Update the import path below to the correct relative path if needed
-import { db } from ". . /lib/mongo";
+import { db } from "@/lib/mongo";
 
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

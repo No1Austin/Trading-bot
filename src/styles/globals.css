@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Smooth fonts + nicer default text color/spacing */
+:root { color-scheme: dark; }
+html, body { height: 100%; }
+body {
+  @apply bg-black text-green-400 antialiased;
+}
+
+/* Simple link + divider styles */
+a { @apply text-green-300 hover:text-green-200 underline underline-offset-4; }
+hr { @apply border-green-900/40; }

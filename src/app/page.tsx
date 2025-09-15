@@ -4,10 +4,24 @@ import useSWR from "swr";
 import TermsGate from "../components/TermsGate";
 import GreedFearGauge from "../components/GreedFearGauge";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+type Market = {
+  id: string;
+  symbol: string;
+  price_change_percentage_24h?: number;
+};
+
+type HomeData = {
+  greedFear: number;
+  topGainers: Market[];
+  topLosers: Market[];
+};
+
+// Generic fetcher that preserves types
+const fetcher = async <T,>(url: string): Promise<T> =>
+  fetch(url).then((r) => r.json() as Promise<T>);
 
 export default function Page() {
-  const { data, error } = useSWR("/api/home", fetcher);
+  const { data, error } = useSWR<HomeData>("/api/home", fetcher<HomeData>);
 
   if (error) return <div className="p-6 text-red-400">Failed to load</div>;
   if (!data) return <div className="p-6 text-green-300/60">Loading…</div>;
@@ -33,21 +47,26 @@ export default function Page() {
           <div>
             <h3 className="mb-2 text-lg font-semibold text-green-200">Top 20 Gainers</h3>
             <ul className="divide-y divide-green-900/40 overflow-hidden rounded-xl border border-green-900/50">
-              {data.topGainers.map((c: any) => (
+              {data.topGainers.map((c: Market) => (
                 <li key={c.id} className="flex items-center justify-between px-4 py-2">
                   <span className="font-medium">{c.symbol.toUpperCase()}</span>
-                  <span className="text-green-300">+{c.price_change_percentage_24h?.toFixed(2)}%</span>
+                  <span className="text-green-300">
+                    +{c.price_change_percentage_24h?.toFixed(2)}%
+                  </span>
                 </li>
               ))}
             </ul>
           </div>
+
           <div>
             <h3 className="mb-2 text-lg font-semibold text-green-200">Top 20 Losers</h3>
             <ul className="divide-y divide-green-900/40 overflow-hidden rounded-xl border border-green-900/50">
-              {data.topLosers.map((c: any) => (
+              {data.topLosers.map((c: Market) => (
                 <li key={c.id} className="flex items-center justify-between px-4 py-2">
                   <span className="font-medium">{c.symbol.toUpperCase()}</span>
-                  <span className="text-red-300">{c.price_change_percentage_24h?.toFixed(2)}%</span>
+                  <span className="text-red-300">
+                    {c.price_change_percentage_24h?.toFixed(2)}%
+                  </span>
                 </li>
               ))}
             </ul>
